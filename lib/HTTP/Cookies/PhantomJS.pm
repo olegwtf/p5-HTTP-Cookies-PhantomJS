@@ -87,14 +87,15 @@ sub load {
 		if ($additional = $cookie_str =~ s/\\\\/\\/g) {
 			$cookie_str .= substr($data, 0, $additional, '');
 		}
-		#print $cookie_str, "\n---------------------\n";
+		#print $cookie_str, "\n";
 		
 		# properly process quoted values
 		# however anyway it is broken in HTTP::Cookies 6.01 - rt70721
 		my ($key_val) = split_header_words($cookie_str);
 		$key_val = join_header_words($key_val->[0], $key_val->[1]);
 		my $tmp = $cookie_str;
-		substr($tmp, 0, length($key_val)+1) = '';
+		#                        value inside key_val may be quoted, but original may be not, so check it
+		substr($tmp, 0, substr($tmp, length($key_val), 1) eq ';' ? length($key_val)+1 : length($key_val)-1) = '';
 		my @cookie_parts = split ';', $tmp;
 		
 		my ($domain, $path);
@@ -154,7 +155,7 @@ sub save {
 		return if $discard && !$self->{ignore_discard};
 		my @cookie_parts;
 		
-		push @cookie_parts, join_header_words($key, $val);
+		push @cookie_parts, $val =~ /^"/ ? "$key=$val" : join_header_words($key, $val);
 		push @cookie_parts, 'secure' if $secure;
 		push @cookie_parts, keys %$rest;
 		push @cookie_parts, 'expires='.time2str($expires) if $expires;
@@ -162,7 +163,6 @@ sub save {
 		push @cookie_parts, 'path='.$path;
 		
 		push @cookies, join '; ', @cookie_parts;
-		print $cookies[-1], "\n-----------\n";
 	});
 	
 	$res .= _generate_length_block(scalar @cookies);
