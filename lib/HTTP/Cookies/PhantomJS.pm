@@ -2,8 +2,8 @@ package HTTP::Cookies::PhantomJS;
 
 use strict;
 use HTTP::Cookies;
-use HTTP::Headers::Util qw(_split_header_words join_header_words);
-use HTTP::Date qw(str2time time2str);
+use HTTP::Response;
+use HTTP::Request;
 
 our @ISA = 'HTTP::Cookies';
 our $VERSION = '0.01';
@@ -54,7 +54,7 @@ sub load {
 	my $self = shift;
 	my $file = shift || $self->{'file'} || return;
 	
-	open my $fh, $file or return;
+	open my $fh, '<', $file or return;
 	<$fh>; # omit header
 	my $data = <$fh>;
 	$data =~ s/\\"/"/g;
@@ -70,29 +70,27 @@ sub load {
 		$len = _read_length_block(\$data);
 		$cookie_str = substr($data, 0, $len, '');
 		
-		for $cookie (_split_header_words($cookie_str)) {
-			my($key, $val) = splice(@$cookie, 0, 2);
-			my %hash;
-			while (@$cookie) {
-				my $k = shift @$cookie;
-				my $v = shift @$cookie;
-				$hash{$k} = $v;
+		my @cookie_parts = split ';', $cookie_str;
+		my ($domain, $path);
+		for (my $i=1; $i<@cookie_parts; $i++) {
+			last if $path && $domain;
+			if (!$domain and ($domain) = $cookie_parts[$i] =~ /domain=(.+)/) {
+				if (substr($domain, 0, 1) eq '.') {
+					substr($domain, 0, 1) = '';
+				}
+				next;
 			}
-			my $version   = int delete $hash{version};
-			my $path      = delete $hash{path};
-			my $domain    = delete $hash{domain};
-			my $port      = delete $hash{port};
-			my $expires   = str2time(delete $hash{expires});
-			
-			my $path_spec = $path ? 1 : 0;
-			my $secure    = 0;
-			my $discard   = 0;
-			
-			my @array = ($version,$val,$port,
-			             $path_spec,$secure,$expires,$discard);
-			push(@array, \%hash) if %hash;
-			$self->{COOKIES}{$domain}{$path}{$key} = \@array;
+			if (!$path) {
+				($path) = $cookie_parts[$i] =~ /path=(.+)/
+			}
 		}
+		
+		# generate fake request, so we can reuse extract_cookies() method
+		my $req  = HTTP::Request->new(GET => "http://$domain$path");
+		my $resp = HTTP::Response->new(200, 'OK', ['Set-Cookie', $cookie_str]);
+		$resp->request($req);
+		
+		$self->extract_cookies($resp);
 	}
 	
 	1;
@@ -103,7 +101,13 @@ sub as_string {
 }
 
 sub save {
-
+	my $self = shift;
+	my $file = shift || $self->{'file'} || return;
+	open my $fh, '>', $file or die "Can't open $file: $!";
+	print $fh "[General]\n";
+	print $fh $self->as_string(!$self->{ignore_discard});
+	close $fh;
+	1;
 }
 
 1;
