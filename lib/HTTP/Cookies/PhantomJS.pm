@@ -188,3 +188,60 @@ sub save {
 }
 
 1;
+
+__END__
+
+=pod
+
+=head1 NAME
+
+HTTP::Cookies::PhantomJS - read and write PhantomJS cookies file
+
+=head1 SYNOPSIS
+
+	use strict;
+	use HTTP::Cookies::PhantomJS;
+	use WWW::Mechanize::PhantomJS;
+	use LWP::UserAgent;
+	
+	my $phantom = WWW::Mechanize::PhantomJS->new(cookie_file => 'cookies.txt');
+	$phantom->get('https://www.google.com/');
+	
+	my $lwp = LWP::UserAgent->new(cookie_jar => HTTP::Cookies::PhantomJS->new(file => 'cookies.txt'));
+	# will reuse cookies received by PhantomJS!
+	$lwp->get('https://www.google.com/');
+
+=head1 DESCRIPTION
+
+This is just L<HTTP::Cookies> subclass, so it has all same methods, but reloads C<load()> and C<save()>
+to make available reading and writing of PhantomJS cookies file. You can easily transform (if you need)
+C<HTTP::Cookies> object to C<HTTP::Cookies::PhantomJS> or vice versa by reblessing (dirty way) or with
+code like this:
+
+	use strict;
+	use HTTP::Cookies;
+	use HTTP::Cookies::PhantomJS;
+	
+	 my $plain_cookies = HTTP::Cookies->new;
+	 # fill it with LWP or other way
+	 ....
+	 # transform
+	 my $phantom_cookies = HTTP::Cookies::PhantomJS->new;
+	 $plain_cookies->scan(sub {
+		$phantom_cookies->set_cookie(@_);
+	 });
+
+=head1 SEE ALSO
+
+L<HTTP::Cookies>
+
+=head1 AUTHOR
+
+Oleg G, E<lt>oleg@cpan.orgE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself
+
+=cut
