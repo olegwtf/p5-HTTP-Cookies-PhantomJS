@@ -4,6 +4,8 @@ use strict;
 use HTTP::Cookies;
 use HTTP::Response;
 use HTTP::Request;
+use HTTP::Headers::Util qw/split_header_words join_header_words/;
+use HTTP::Date qw/time2str/;
 
 our @ISA = 'HTTP::Cookies';
 our $VERSION = '0.01';
@@ -44,6 +46,10 @@ sub _read_length_block {
 		if (substr($$str_ref, 0, 1) =~ /[a-f0-9]/) {
 			$c .= substr($$str_ref, 0, 1, '');
 		}
+		if (length($c) == 1 && $bytes && substr($bytes, -2) ne '\0') {
+			# \0\0\x1\x4 -> 00104
+			$c = '0'.$c;
+		}
 		$bytes .= $c;
 	}
 	
@@ -70,14 +76,31 @@ sub load {
 		$len = _read_length_block(\$data);
 		$cookie_str = substr($data, 0, $len, '');
 		
-		my @cookie_parts = split ';', $cookie_str;
+		# beginning may be in hex notation
+		my $additional = 0;
+		while ((my $c = substr($cookie_str, $additional, 4)) =~ /\\x[a-f0-9]{2}/) {
+			substr($cookie_str, $additional, 4) = chr hex substr $c, 2;
+			$additional++;
+		}
+		$cookie_str .= substr($data, 0, $additional*3, '');
+		
+		if ($additional = $cookie_str =~ s/\\\\/\\/g) {
+			$cookie_str .= substr($data, 0, $additional, '');
+		}
+		#print $cookie_str, "\n---------------------\n";
+		
+		# properly process quoted values
+		# however anyway it is broken in HTTP::Cookies 6.01 - rt70721
+		my ($key_val) = split_header_words($cookie_str);
+		$key_val = join_header_words($key_val->[0], $key_val->[1]);
+		my $tmp = $cookie_str;
+		substr($tmp, 0, length($key_val)+1) = '';
+		my @cookie_parts = split ';', $tmp;
+		
 		my ($domain, $path);
-		for (my $i=1; $i<@cookie_parts; $i++) {
+		for (my $i=0; $i<@cookie_parts; $i++) {
 			last if $path && $domain;
 			if (!$domain and ($domain) = $cookie_parts[$i] =~ /domain=(.+)/) {
-				if (substr($domain, 0, 1) eq '.') {
-					substr($domain, 0, 1) = '';
-				}
 				next;
 			}
 			if (!$path) {
@@ -86,7 +109,7 @@ sub load {
 		}
 		
 		# generate fake request, so we can reuse extract_cookies() method
-		my $req  = HTTP::Request->new(GET => "http://$domain$path");
+		my $req  = HTTP::Request->new(GET => "http://".(substr($domain, 0, 1) eq '.' ? 'www' : '')."$domain$path");
 		my $resp = HTTP::Response->new(200, 'OK', ['Set-Cookie', $cookie_str]);
 		$resp->request($req);
 		
@@ -96,17 +119,71 @@ sub load {
 	1;
 }
 
-sub as_string {
-
+sub _generate_length_block {
+	my $length = shift;
+	
+	my $normalize = sub {
+		my $str = shift;
+		return $str if length($str) != 2;
+		$str =~ s/^0//;
+		$str;
+	};
+	
+	my $bytes;
+	my $hex = sprintf '%x', $length;
+	my $part;
+	for (1..4) {
+		$bytes = (length($hex) ? '\x'.$normalize->(substr($hex, -2, 2, '')) : '\0'). $bytes;
+	}
+	
+	$bytes;
 }
 
 sub save {
 	my $self = shift;
 	my $file = shift || $self->{'file'} || return;
 	open my $fh, '>', $file or die "Can't open $file: $!";
+	
+	my $res = MAGIC;
+	my @cookies;
+	
+	$self->scan(sub {
+		my ($version,$key,$val,$path,$domain,$port,
+		    $path_spec,$secure,$expires,$discard,$rest) = @_;
+		
+		return if $discard && !$self->{ignore_discard};
+		my @cookie_parts;
+		
+		push @cookie_parts, join_header_words($key, $val);
+		push @cookie_parts, 'secure' if $secure;
+		push @cookie_parts, keys %$rest;
+		push @cookie_parts, 'expires='.time2str($expires) if $expires;
+		push @cookie_parts, 'domain='.$domain;
+		push @cookie_parts, 'path='.$path;
+		
+		push @cookies, join '; ', @cookie_parts;
+		print $cookies[-1], "\n-----------\n";
+	});
+	
+	$res .= _generate_length_block(scalar @cookies);
+	for my $cookie (@cookies) {
+		$res .= _generate_length_block(length $cookie);
+		$cookie =~ s/\\/\\\\/g;
+		$cookie =~ s/"/\\"/g;
+		# any valid hex symbol at the beginning should be replaced with \x notation
+		my $i = 0;
+		while ((my $c = substr($cookie, $i, 1)) =~ /[a-f0-9]/) {
+			substr($cookie, $i, 1) = sprintf '\x%x', ord($c);
+			$i += 4;
+		}
+		$res .= $cookie;
+	}
+	$res .= ')"';
+	
 	print $fh "[General]\n";
-	print $fh $self->as_string(!$self->{ignore_discard});
+	print $fh $res, "\n";
 	close $fh;
+	
 	1;
 }
 
