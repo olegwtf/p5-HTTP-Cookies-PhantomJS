@@ -8,7 +8,7 @@ use HTTP::Headers::Util qw/split_header_words join_header_words/;
 use HTTP::Date qw/time2str/;
 
 our @ISA = 'HTTP::Cookies';
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use constant MAGIC => 'cookies="@Variant(\0\0\0\x7f\0\0\0\x16QList<QNetworkCookie>\0\0\0\0\x1';
 my %ESCAPES = (
