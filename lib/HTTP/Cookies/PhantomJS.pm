@@ -89,6 +89,10 @@ sub load {
 		}
 		#print $cookie_str, "\n";
 		
+		unless ($cookie_str) {
+			warn "Ooops, looks like we can't read cookie. Please report this bug with cookies file attached to author of ".__PACKAGE__;
+		}
+		
 		# properly process quoted values
 		# however anyway it is broken in HTTP::Cookies 6.01 - rt70721
 		my ($key_val) = split_header_words($cookie_str);
