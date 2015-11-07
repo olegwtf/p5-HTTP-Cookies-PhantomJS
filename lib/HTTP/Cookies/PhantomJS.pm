@@ -172,7 +172,7 @@ sub save {
 		$cookie =~ s/"/\\"/g;
 		# any valid hex symbol at the beginning should be replaced with \x notation
 		my $i = 0;
-		while ((my $c = substr($cookie, $i, 1)) =~ /[a-f0-9]/) {
+		while ((my $c = substr($cookie, $i, 1)) =~ /[A-Fa-f0-9]/) {
 			substr($cookie, $i, 1) = sprintf '\x%x', ord($c);
 			$i += 4;
 		}
